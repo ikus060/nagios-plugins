@@ -1,0 +1,417 @@
+#! /bin/bash
+
+###
+# Nagios plugin skeleton
+# http://nagiosplug.sourceforge.net/developer-guidelines.html
+#
+# This plugin check the state of a Cyber Power UPS using the utility tool
+# named pwrstat This utility is provided directly from CyberPower. To work
+# properly, this script required a sudo rules:
+#
+# @AUTHOR: Patrik Dufresne (http://patrikdufresne.com)
+# Copyright 2012 Patrik Dufresne
+# Last modified 2012-09-15
+# Please send all comments, suggestions, bugs and patches to (info AT patrikdufresne DOT com)
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, version 2 of the License.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+###
+
+# you probably want to uncomment the following lines while developing
+#shopt -o -s xtrace
+# if you turn this on, then you have to alter the check_value calls to be able to check $?
+#shopt -o -s errexit
+
+# You should provide a meaningful VERSION
+VERSION=0.1
+# Who can be contacted about this?
+AUTHOR="Patrik Dufresne"
+# Name what is being checked to be printed out next to OK/WARNING/CRITICAL/UNKNOWN
+SERVICE="PWRSTAT"
+
+# Replacement for the exit function, will cleanup any tempfiles or such
+# before exiting.
+function cleanup {
+	exit $1
+}
+
+declare -rx PROGNAME=${0##*/}
+declare -rx PROGPATH=${0%/*}/
+
+if [ -r "${PROGPATH}utils.sh" ] ; then
+	source "${PROGPATH}utils.sh"
+else
+	echo "Can't find utils.sh. This plugin needs to be run from the same directory as utils.sh which is most likely something like /usr/lib/nagios/plugins or /usr/lib64/nagios/plugins"
+	printf "Currently being run from %s\n" "$PROGPATH"
+	# Since we couldn't define STATE_UNKNOWN since reading utils.sh
+    # failed, we use 3 here but everywhere else after this use cleanup $STATE
+	cleanup 3
+fi
+
+# Set STATE to UNKNOWN as soon as we can (right after reading in util.sh
+# where the STATES are defined)
+STATE=$STATE_UNKNOWN
+
+# make sure that any external commands are installed, in the PATH and
+# executable. The following example is stupid because of course date is
+# installed but it's the only command this trivial check really uses
+PWRSTAT=/usr/sbin/pwrstat
+if [ ! -x "$PWRSTAT" ] ; then
+	echo "pwrstat is not installed, in your path and executable. Exiting."
+	cleanup $STATE_UNKNOWN
+fi
+
+# provide a quick one liner of how to use the program
+function usage {
+	printf " %s %s for Nagios - Usage %s \
+[-wv <warning output voltage threshold>] [-cv <critical output voltage threshold>] \
+[-wb <warning battery capacity threshold>] [-cb <critical battery capacity threshold>] \
+[-wr <warning runtime threshold>] [-cr <critical runtime threshold>] \
+[-wl <warning load pct threshold>] [-cl <critical load pct threshold>] \
+[-t timeout] [-v [-v [-v]]]\n" "$PROGNAME" "$VERSION" "$PROGNAME"
+	cleanup $STATE_UNKNOWN
+}
+
+# provide detailed explanations of the command line syntax
+function longhelp {
+	# put your long help here
+	printf "%s plugin version %s for Nagios by %s
+  -h, --help                   Display this message.
+  --o, --warning-voltage=val  Set the warning output voltage threshold.
+  --O, --critical-voltage=val Set the critical output voltage threshold.
+  --b, --warning-battery=val  Set the warning percentage battery capacity threshold.
+  --B, --critical-battery=val Set the critical percentage battery capacity threshold.
+  --r, --warning-runtime=val  Set the warning remaining runtime threshold.
+  --R, --critical-runtime=val Set the critical remaining runtime threshold.
+  --l, --warning-load=val     Set the warning load percentage threshold.
+  --L, --critical-load=val    Set the critical load percentage threshold.
+  -t, --timeout=sec            Set script timeout in seconds.
+  -v, --verbose                Up the verbosity level by one.
+  --verbosity=val              Set the verbosity level to val.
+  -V, --version                Print version information.
+  --range_help                 Explain threshold ranges.
+" "$PROGNAME" "$VERSION" "$AUTHOR"
+	cleanup $STATE_UNKNOWN
+}
+
+# explanatory function you probably want to keep
+function range_help {
+	printf "
+The format for ranges in Nagios can be confusing and it isn't always followed.
+
+[@]start[:[end]]
+
+Here are some example ranges:
+
+Range   |  Generate an alert if value is    |  In English
+--------+-----------------------------------+---------------------------------
+10      |  outside the range of {0 .. 10}   |  Greater than 10
+@10     |  inside the range of {0 .. 10}    |  Less than or equal to 10
+10:     |  outside {10 .. ∞}                |  Greater than 10
+~:10    |  outside the range of {-∞ .. 10}  |  Less than 10 including negative
+10:20   |  outside the range of {10 .. 20}  |  Between 10 and 20
+@10:20  |  inside the range of {10 .. 20}   |  Anything from 10 to 20
+10      |  outside the range of {0 .. 10}   |  Greater than 10 or less than 0
+
+Formal Rules:
+1. start ≤ end
+2. start and ":" is not required if start=0
+3. if range is of format \"start:\" and end is not specified, end is infinity
+4. to specify negative infinity, use "~"
+5. alert is raised if metric is outside start and end range (inclusive)
+6. if range starts with "@", then alert if inside this range (inclusive)
+    10      < 0 or > 10, (outside the range of {0 .. 10})
+    10:     < 10, (outside {10 .. ∞})
+    ~:10    > 10, (outside the range of {-∞ .. 10})
+    10:20   < 10 or > 20, (outside the range of {10 .. 20})
+    @10:20  ≥ 10 and ≤ 20, (inside the range of {10 .. 20})
+    10      < 0 or > 10, (outside the range of {0 .. 10})
+
+More help at http://nagiosplug.sourceforge.net/developer-guidelines.html
+"
+	cleanup $STATE_UNKNOWN
+}
+
+#if [ $# -eq 0 ] ; then
+#	usage
+#fi
+
+# use getopt, trust me on this one. It's the easiest way
+getopt -T
+if [ $? -ne 4 ] ; then
+	printf "%s: getopt is in compatibility mode.\n" "$SCRIPT"
+	cleanup $STATE_UNKNOWN
+fi
+
+# Tell it which switches and longswitches you'll take and place a trailing
+# colon (:) on the ones take arguments. Nagios guidelines require you to
+# use all the ones specified below with the exception of --verbosity which I've
+# added to circumvent the awkward -v -v -v syntax. Getopt takes care of
+# positional parameters and errors for missing expected arguments so we can
+# shift later without checking
+RESULT=`getopt --name "$SCRIPT" --options "-h,-V,-v,-t:,-o:,-O:,-b:,-B:,-r:,-R:,-l:,-L:" \
+--longoptions "help,version,verbose,verbosity:,warning-voltage:,warning-battery:,warning-runtime:,warning-load:,critical-voltage:,critical-battery:,critical-runtime:,critical-load:,timeout:" -- "$@"`
+
+# make the result of getopt your new argument list ($@)
+eval set -- "$RESULT"
+
+declare WARNING
+declare CRITICAL
+# all scripts should have a mechanism to terminate themselves if they are
+# running for too long. Scripts you might think of as innocuous could end
+# up waiting forever on I/O, especially if a disk is failing
+declare -i TIMELIMIT=15
+# Nagios defines behavior for VERBOSITY 0 (default) through 3
+declare -i VERBOSITY=0
+
+while [ $# -gt 0 ] ; do
+	case "$1" in
+		-h | --help)
+			longhelp;;
+		-V | --version)
+			print_revision "$PROGNAME" "$VERSION"
+			cleanup $STATE;;
+		-v | --verbose)
+			VERBOSITY=$(($VERBOSITY + 1));;
+		--verbosity)
+			shift
+			VERBOSITY=$1;;
+		-o | --warning-voltage)
+			shift
+			VOLTAGE_WARNING=$1;;
+		-b | --warning-battery)
+			shift
+			BATTERY_WARNING=$1;;
+		-r | --warning-runtime)
+			shift
+			RUNTIME_WARNING=$1;;
+		-l | --warning-load)
+			shift
+			LOAD_WARNING=$1;;
+		-O | --critical-voltage)
+			shift
+			VOLTAGE_CRITICAL=$1;;
+		-B | --critical-battery)
+			shift
+			BATTERY_CRITICAL=$1;;
+		-R | --critical-runtime)
+			shift
+			RUNTIME_CRITICAL=$1;;
+		-L | --critical-load)
+			shift
+			LOAD_CRITICAL=$1;;
+		-t | --timeout)
+			shift
+			TIMELIMIT=$1;;
+		--)
+			shift
+			break;;
+		*)
+			echo "Option $1 not supported. Ignored." >&2;;
+	esac
+	shift
+done
+
+#Verbosity level	Type of output
+#0			Single line, minimal output. Summary
+#1			Single line, additional information (eg list processes that fail)
+#2			Multi line, configuration debug output (eg ps command used)
+#3			Lots of detail for plugin problem diagnosis
+if [ $VERBOSITY -gt 2 ] ; then
+	shopt -o -s xtrace
+fi
+
+# what needs to happen in the event of a timeout
+function timeout {
+	echo "UNKNOWN - script timed out after $TIMELIMIT seconds."
+	cleanup $STATE_UNKNOWN
+}
+
+function check_range {
+	# # positive values only
+	if [ ! -z "$1" ] ; then
+		WARNFORMAT=`echo "$1" | grep -c '^@\?\([0-9]\+:[0-9]*\|[0-9]\+\)$'`
+		if [ $WARNFORMAT -lt 1 ] ; then
+			echo "Please check the format of your warning and critical thresholds."
+			range_help
+		fi
+	fi
+	if [ ! -z "$2" ] ; then
+		CRITFORMAT=`echo "$2" | grep -c '^@\?\([0-9]\+:[0-9]*\|[0-9]\+\)$'`
+		if [ $CRITFORMAT -lt 1 ] ; then
+			echo "Please check the format of your warning and critical thresholds."
+			range_help
+		fi
+	fi
+}
+
+check_range "$VOLTAGE_WARNING" "$VOLTAGE_CRITICAL"
+check_range "$BATTERY_WARNING" "$BATTERY_CRITICAL"
+check_range "$RUNTIME_WARNING" "$RUNTIME_CRITICAL"
+check_range "$LOAD_WARNING" "$LOAD_CRITICAL"
+
+# since we've processed the options which potentially set the timeout limit,
+# we can setup a timeout trap now
+trap timeout USR1
+	# what we're doing here sending a USR1 signal back to this process which
+	# we just set a trap to catch and run the timeout function the syntax of
+	# this is important and very odd - if you know of a better way to do this, 
+	# please email me what we're doing is starting another process in the
+	# background that sleeps for TIMELIMIT seconds and then uses pgrep when
+	# it 'wakes up' to see if a process with our number, name and user exists,
+	# only then will the USR1 signal be sent we have to use pgrep so that we
+	# don't sent a USR1 signal to just any program. The only risk we run with
+	# this is sending USR1 to another instance of this script that just happens
+	# to get assigned the same process ID it should be reasonable to assume
+	# that your Nagios check interval is greater than the specified timeout
+	# still, if you havea better idea...
+	( sleep $TIMELIMIT; if [ `pgrep -U $USER -f "$SCRIPT" | grep -c ^$$$` -gt 0 ] ; then kill -USR1 $$ ; fi; ) </dev/null &>/dev/null &
+
+	# Get the sensor's value
+	DATA=`sudo pwrstat -status`
+	if [ $VERBOSITY -gt 2 ] ; then
+		echo "$DATA"
+	fi
+	UPSSTATE=`echo "$DATA" | grep State |sed 's/.*State[ \.]\{1,\}\(.*\)/\1/'`
+	if [ "$UPSSTATE" != "Lost Communication" ]; then
+		VOLTAGE=`echo "$DATA" | grep 'Output Voltage' | grep -oe '[0-9]*'`
+		BATTERY=`echo "$DATA" | grep 'Battery Capacity' | grep -oe '[0-9]*'`
+		RUNTIME=`echo "$DATA" | grep 'Remaining Runtime' | grep -oe '[0-9]*'`
+		LOAD=`echo "$DATA" | grep Load | grep -oe '[0-9]* %' | grep -oe '[0-9]*'`
+	fi
+
+	# Once we're done doing work that could take any real time, we can end the
+    # trap because from here on out it's just comparisons and string
+    # concatenation
+trap - USR1
+
+function check_value {
+	if [ -z "$1" ]; then
+		return 0
+	fi
+
+	# If the range starts with an @, alert if value is inside the range,
+    # otherwise alert if value is outside of range.
+	INSIDE=`echo "$1" | grep -c '^@'`
+	RANGE=`echo "$1" | sed 's/^@//'`
+
+	# Start is anything left of the colon or 0.
+    # End is anything right of the colon or the whole string if there's no
+    # colon or infinity if there is a colon and nothing to the right of it
+
+	# is there a colon?
+	PARTS=`echo "$RANGE" | awk -F : '{ print NF }'`
+	if [ $PARTS -gt 1 ] ; then
+		START=${RANGE%%:*}
+		END=${RANGE##*:}
+	else
+		START=0
+		END=$RANGE
+	fi
+
+	# 4. to specify negative infinity, use "~"
+	if [ "$START" == "~" ] ; then
+		START=-999999999
+	fi
+
+	if [ -z "$END" ] ; then
+		END=999999999
+	fi
+
+	if [ $START -gt $END ] ; then
+		echo "In threshold START:END, START must be less than or equal to END"
+		range_help
+	fi
+
+	# if the range starts with an @, alert if value is inside the range,
+	# otherwise alert if value is outside of range all ranges are inclusive
+	# of endpoints so we use less than or equal on the inside and just less
+	# than on the outside
+	if [ "$INSIDE" -gt 0 ] ; then
+		if [ "$START" -le "$2" -a "$2" -le "$END" ] ; then
+			return 1
+		fi
+	else
+		if [ "$2" -lt "$START" -o "$END" -lt "$2" ] ; then
+			return 1
+		fi
+	fi
+
+	return 0
+}
+
+# Check UPS state
+if [ "$UPSSTATE" = "Lost Communication" ]; then
+	OUT="Can't get UPS status: $UPSSTATE"
+	printf "%s UNKNOWN - %s\n" "$SERVICE" "$OUT"
+	cleanup $STATE_UNKNOWN
+fi
+
+# Check critical threshold
+STATE=$STATE_OK
+check_value "$VOLTAGE_CRITICAL" "$VOLTAGE"
+if [ $? -gt 0 ] ; then
+	STATE=$STATE_CRITICAL
+fi
+check_value "$BATTERY_CRITICAL" "$BATTERY"
+if [ $? -gt 0 ] ; then
+	STATE=$STATE_CRITICAL
+fi
+check_value "$RUNTIME_CRITICAL" "$RUNTIME"
+if [ $? -gt 0 ] ; then
+	STATE=$STATE_CRITICAL
+fi
+check_value "$LOAD_CRITICAL" "$LOAD"
+if [ $? -gt 0 ] ; then
+	STATE=$STATE_CRITICAL
+fi
+
+# Check warning treshold
+if [ $STATE -ne $STATE_CRITICAL ]; then
+	check_value "$VOLTAGE_WARNING" "$VOLTAGE"
+	if [ $? -gt 0 ] ; then
+		STATE=$STATE_WARNING
+	fi
+	check_value "$BATTERY_WARNING" "$BATTERY"
+	if [ $? -gt 0 ] ; then
+		STATE=$STATE_WARNING
+	fi
+	check_value "$RUNTIME_WARNING" "$RUNTIME"
+	if [ $? -gt 0 ] ; then
+		STATE=$STATE_WARNING
+	fi
+	check_value "$LOAD_WARNING" "$LOAD"
+	if [ $? -gt 0 ] ; then
+		STATE=$STATE_WARNING
+	fi
+fi
+
+# Check ups state
+if [ "$UPSSTATE" = "Power Failure" ] ; then
+	STATE=$STATE_CRITICAL
+fi
+
+# STATE - Message | 'label'=value[unit of measure];[warn];[crit];[min];[max]
+OUT="state: $UPSSTATE, output voltage: $VOLTAGE volt, battery: $BATTERY%, remaining runtime: $RUNTIME min, load: $LOAD% | voltage=$VOLTAGE batery=$BATTERY% runtime=$RUNTIME load=$LOAD%"
+
+case $STATE in
+	$STATE_OK)
+		printf "%s OK - %s\n" "$SERVICE" "$OUT";;
+	$STATE_WARNING)
+		printf "%s WARNING - %s\n" "$SERVICE" "$OUT";;
+	$STATE_CRITICAL)
+		printf "%s CRITICAL - %s\n" "$SERVICE" "$OUT";;
+	$STATE_UNKNOWN)
+		printf "%s UNKNOWN - %s\n" "$SERVICE" "$OUT";;
+esac
+
+cleanup $STATE

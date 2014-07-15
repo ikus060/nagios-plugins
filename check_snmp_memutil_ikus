@@ -1,0 +1,325 @@
+#!/usr/bin/perl
+#
+#
+# AUTHORS:
+#	Copyright (C) 2003-2012 Opsview Limited. All rights reserved
+#
+#    This file is part of Opsview
+#
+#    Opsview is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    Opsview is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with Opsview; if not, write to the Free Software
+#    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+#
+# MODIFIED:
+#    July 25, 2012 by Patrik Dufresne. Take the buffered and chaced value in
+#    consideration
+use lib qw ( /usr/local/nagios/perl/lib );
+use Net::SNMP;
+use Getopt::Std;
+
+use warnings;
+use strict;
+
+my $script         = 'check_snmp_memutil';
+my $script_version = '3.0';
+
+my $metric        = 1;
+my $oid_sysDescr  = ".1.3.6.1.2.1.1.1.0";
+my $memTotalSwap  = ".1.3.6.1.4.1.2021.4.3.0";
+my $memTotalReal  = ".1.3.6.1.4.1.2021.4.5.0";
+my $memAvailSwap  = ".1.3.6.1.4.1.2021.4.4.0";
+my $memAvailReal  = ".1.3.6.1.4.1.2021.4.6.0";
+my $memCached     = ".1.3.6.1.4.1.2021.4.15.0";
+my $memBuffered   = ".1.3.6.1.4.1.2021.4.14.0";
+my $version       = "1";
+my $timeout       = 2;
+my $real_warning  = 90;
+my $real_critical = 95;
+my $swap_warning  = 90;
+my $swap_critical = 95;
+my $status        = 0;
+my $returnstring  = "";
+my $port          = 161;
+my $hostname;
+my $community = "public";    # Default community string
+
+# SNMP values
+my $availreal          = 0;
+my $availswap          = 0;
+my $totalmemused       = 0;
+my $totalreal          = 0;
+my $totalrealmb        = 0;
+my $totalswap          = 0;
+my $totalswapmb        = 0;
+my $usedreal           = 0;
+my $usedrealmb         = 0;
+my $usedrealpercentage = 0;
+my $usedswap           = 0;
+my $usedswapmb         = 0;
+my $usedswappercentage = 0;
+my $buffered           = 0;
+my $bufferedmb         = 0;
+my $cached             = 0;
+my $cachedmb           = 0;
+
+# Do we have enough information?
+if ( @ARGV < 1 ) {
+    print "Too few arguments$/";
+    usage();
+}
+
+our ( $opt_h, $opt_H, $opt_C, $opt_w, $opt_c, $opt_x, $opt_d, $opt_p, $opt_v );
+getopts("hH:C:w:c:x:d:p:v:");
+if ($opt_h) {
+    usage();
+    exit(0);
+}
+if ($opt_H) {
+    $hostname = $opt_H;
+}
+else {
+    print "No hostname specified$/";
+    usage();
+}
+if ($opt_C) {
+    $community = $opt_C;
+}
+if ($opt_w) {
+    $real_warning = $opt_w;
+    $real_warning =~ s/%//g;
+}
+if ($opt_c) {
+    $real_critical = $opt_c;
+    $real_critical =~ s/%//g;
+}
+if ($opt_x) {
+    $swap_warning = $opt_x;
+    $swap_warning =~ s/%//g;
+}
+if ($opt_d) {
+    $swap_critical = $opt_d;
+    $swap_critical =~ s/%//g;
+}
+if ($opt_p) {
+    $port = $opt_p;
+}
+if ($opt_v) {
+    if ( $opt_v ne "1" && $opt_v ne "2c" ) {
+        print "SNMP version must be 1 or 2c (not $opt_v)$/";
+        usage();
+    }
+    else {
+        $version = $opt_v;
+    }
+}
+
+# Create the SNMP session
+my ( $s, $e ) = Net::SNMP->session(
+    -community => $community,
+    -hostname  => $hostname,
+    -version   => $version,
+    -timeout   => $timeout,
+    -port      => $port,
+);
+
+main();
+
+# Close the session
+$s->close();
+
+if ( $returnstring eq "" ) {
+    $status = 3;
+}
+
+if ( $status == 0 ) {
+    print "OK - $returnstring$/";
+}
+elsif ( $status == 1 ) {
+    print "WARNING - $returnstring$/";
+}
+elsif ( $status == 2 ) {
+    print "CRITICAL - $returnstring$/";
+}
+else {
+    print "UNKNOWN - Plugin error?$/";
+}
+
+exit $status;
+
+sub main {
+
+    # Swap
+    if ( !defined( $s->get_request($memTotalSwap) ) ) {
+        if ( !defined( $s->get_request($oid_sysDescr) ) ) {
+            $returnstring = "SNMP agent not responding";
+            $status       = 1;
+            return 1;
+        }
+        else {
+            $returnstring = "SNMP OID does not exist";
+            $status       = 1;
+            return 1;
+        }
+    }
+    foreach ( $s->var_bind_names() ) {
+        $totalswap = $s->var_bind_list()->{$_};
+    }
+
+    if ( !defined( $s->get_request($memAvailSwap) ) ) {
+        if ( !defined( $s->get_request($oid_sysDescr) ) ) {
+            $returnstring = "SNMP agent not responding";
+            $status       = 1;
+            return 1;
+        }
+        else {
+            $returnstring = "SNMP OID does not exist";
+            $status       = 1;
+            return 1;
+        }
+    }
+    foreach ( $s->var_bind_names() ) {
+        $availswap = $s->var_bind_list()->{$_};
+    }
+    $usedswap           = $totalswap - $availswap;
+    if( $totalswap > 0 ) {
+        $usedswappercentage = ( 100 / $totalswap ) * $usedswap;
+    }
+    $usedswapmb         = $usedswap / 1024;
+
+    # printf "Swap memory used: %.0f percent (%.0f Mb)$/", $usedswappercentage, $usedswapmb ;
+
+    # Real
+    if ( !defined( $s->get_request($memTotalReal) ) ) {
+        if ( !defined( $s->get_request($oid_sysDescr) ) ) {
+            $returnstring = "SNMP agent not responding";
+            $status       = 1;
+            return 1;
+        }
+        else {
+            $returnstring = "SNMP OID does not exist";
+            $status       = 1;
+            return 1;
+        }
+    }
+    foreach ( $s->var_bind_names() ) {
+        $totalreal = $s->var_bind_list()->{$_};
+
+        # $totalreal = sprintf("%.2f",$totalreal);
+    }
+
+    if ( !defined( $s->get_request($memAvailReal) ) ) {
+        if ( !defined( $s->get_request($oid_sysDescr) ) ) {
+            $returnstring = "SNMP agent not responding";
+            $status       = 1;
+            return 1;
+        }
+        else {
+            $returnstring = "SNMP OID does not exist";
+            $status       = 1;
+            return 1;
+        }
+    }
+    foreach ( $s->var_bind_names() ) {
+        $availreal = $s->var_bind_list()->{$_};
+
+        # $availreal = sprintf("%.2f",$availreal);
+    }
+
+    # Buffered
+    if ( !defined( $s->get_request($memBuffered) ) ) {
+        if ( !defined( $s->get_request($oid_sysDescr) ) ) {
+            $returnstring = "SNMP agent not responding";
+            $status       = 1;
+            return 1;
+        }
+        else {
+            $returnstring = "SNMP OID does not exist";
+            $status       = 1;
+            return 1;
+        }
+    }
+    foreach ( $s->var_bind_names() ) {
+        $buffered = $s->var_bind_list()->{$_};
+
+        # $availreal = sprintf("%.2f",$availreal);
+    }
+
+    # Cached
+    if ( !defined( $s->get_request($memCached) ) ) {
+        if ( !defined( $s->get_request($oid_sysDescr) ) ) {
+            $returnstring = "SNMP agent not responding";
+            $status       = 1;
+            return 1;
+        }
+        else {
+            $returnstring = "SNMP OID does not exist";
+            $status       = 1;
+            return 1;
+        }
+    }
+    foreach ( $s->var_bind_names() ) {
+        $cached = $s->var_bind_list()->{$_};
+
+        # $availreal = sprintf("%.2f",$availreal);
+    }
+
+    $totalrealmb        = $totalreal / 1024;
+    $totalswapmb        = $totalswap / 1024;
+    $usedreal           = $totalreal - ( $cached + $buffered + $availreal);
+    $usedrealpercentage = ( 100 / $totalreal ) * $usedreal;
+    $usedrealmb         = $usedreal / 1024;
+    $cachedmb           = $cached / 1024;
+    $bufferedmb         = $buffered / 1024;
+
+    $totalmemused = $usedrealpercentage + $usedswappercentage;
+
+    $returnstring .= sprintf "USAGE: real %.0f%% (%.0f/%.0fMB), buffer: %.0fMB, cache: %.0fMB, swap %.0f%% (%.0f/%.0f MB)|", $usedrealpercentage, $usedrealmb, $totalrealmb, $bufferedmb, $cachedmb, $usedswappercentage, $usedswapmb, $totalswapmb;
+
+    # Perf data
+    $returnstring .= sprintf "used_real_pct=%.0f%% used_real_mb=%.0f used_swap_pct=%.0f%% used_swap_mb=%.0f cached_mb=%.0f buffered_mb=%.0f", $usedrealpercentage, $usedrealmb, $usedswappercentage, $usedswapmb, $cachedmb, $bufferedmb;
+
+    if ( $usedrealpercentage >= $real_critical ) {
+        $status = 2;
+    }
+    elsif ( $usedswappercentage >= $swap_critical ) {
+        $status = 2;
+    }
+    elsif ( $usedrealpercentage >= $real_warning ) {
+        $status = 1;
+    }
+    elsif ( $usedswappercentage >= $swap_warning ) {
+        $status = 1;
+    }
+    else {
+        $status = 0;
+    }
+}
+
+sub usage {
+    print << "USAGE";
+
+$script v$script_version
+
+Returns memory utilisation stats for Linux / Unix systems
+
+Usage: $script -H <hostname> -C <community> [...]
+Options: -H 		Hostname or IP address
+         -p 		Port (default: 161)
+         -C 		Community (default is public)
+         -w 		Real memory warning threshold (as % used)
+         -c 		Real memory critical threshold (as % used)
+         -x 		Swap warning threshold (as % used)
+         -d 		Swap critical threshold (as % used)
+USAGE
+    exit 3;
+}
