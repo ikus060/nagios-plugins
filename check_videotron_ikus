@@ -1,11 +1,16 @@
 #! /bin/bash
 
 ###
-# This plugin check internet consumption for Videotron provider. 
+# This plugin check internet consumption for Videotron provider.
+# Version 1.1 also provide support to monitor internet bandwidth
+# consumption for electronic box. 
+#
+# Basically, this pluging will fetch your comsumption using the
+# web page provided by videotron or EBOX.
 #
 # @AUTHOR: Patrik Dufresne (http://patrikdufresne.com)
-# Copyright 2013 Patrik Dufresne
-# Last modified 2013-07-19
+# Copyright 2015 Patrik Dufresne
+# Last modified 2015-03-26
 # Please send all comments, suggestions, bugs and patches to
 # (info AT patrikdufresne DOT com)
 #
@@ -22,7 +27,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 ###
 
-VERSION=0.1
+VERSION=1.1
 AUTHOR="Patrik Dufresne"
 # Name what is being checked to be printed out next to OK/WARNING/CRITICAL/UNKNOWN
 SERVICE="VIDEOTRON"
@@ -63,6 +68,7 @@ fi
 function usage {
   printf " %s %s for Nagios - Usage %s \
 -a <account> \
+-p <provider>
 [-m <warning month threshold>] [-M <critical month threshold>] \
 [-d <warning day threshold>] [-D <critical day threshold>] \
 [-t timeout] [-v [-v [-v]]]\n" "$PROGNAME" "$VERSION" "$PROGNAME"
@@ -75,6 +81,8 @@ function longhelp {
   printf "%s plugin version %s for Nagios by %s
   -h, --help                   Display this message.
   -a, --account                Set the account (VLxxxxxx).
+  -p, --provider               Set the name of your provider.
+                               Currenly support VIDEOTRON or EBOX (default: VIDEOTRON).
   -m, --warning-month=val      Set the warning month threshold in MiB.
   -M, --critical-month=val     Set the critical month threshold in MiB.
   -d, --warning-day=val        Set the warning day threshold in MiB.
@@ -143,14 +151,16 @@ fi
 # added to circumvent the awkward -v -v -v syntax. Getopt takes care of
 # positional parameters and errors for missing expected arguments so we can
 # shift later without checking
-RESULT=`getopt --name "$SCRIPT" --options "-h,-V,-v,-t:,-d:,-D:,-m:,-M:,-r:,-R:,-l:,-L:,-a:" \
---longoptions "help,version,verbose,verbosity:,timeout:,warning-day:,critical-day:,warning-month:,critical-month:,account:" -- "$@"`
+RESULT=`getopt --name "$SCRIPT" --options "-h,-V,-v,-t:,-d:,-D:,-m:,-M:,-r:,-R:,-l:,-L:,-a:,-p:" \
+--longoptions "help,version,verbose,verbosity:,timeout:,warning-day:,critical-day:,warning-month:,critical-month:,account:,provider:" -- "$@"`
 
 # make the result of getopt your new argument list ($@)
 eval set -- "$RESULT"
 
 declare WARNING
 declare CRITICAL
+declare ACCOUNT
+declare PROVIDER
 # all scripts should have a mechanism to terminate themselves if they are
 # running for too long. Scripts you might think of as innocuous could end
 # up waiting forever on I/O, especially if a disk is failing
@@ -188,6 +198,9 @@ while [ $# -gt 0 ] ; do
     -a | --account)
       shift
       ACCOUNT=$1;;
+    -p | --provider)
+      shift
+      PROVIDER=$1;;
     --)
       shift
       break;;
@@ -228,9 +241,13 @@ check_range "$DAY_CRITICAL"
 check_range "$MONTH_WARNING"
 check_range "$MONTH_CRITICAL"
 
-if [ -z "$ACCOUNT" ] ; then
+if [ -z "$ACCOUNT" -o -z "$PROVIDER" ]; then
   usage 
 fi
+if [ "$PROVIDER" != "EBOX" -a "$PROVIDER" != "VIDEOTRON" ]; then
+  usage
+fi
+SERVICE="$PROVIDER"
 
 # since we've processed the options which potentially set the timeout limit,
 # we can setup a timeout trap now
@@ -250,17 +267,37 @@ trap timeout USR1
   ( sleep $TIMELIMIT; if [ `pgrep -U $USER -f "$SCRIPT" | grep -c ^$$$` -gt 0 ] ; then kill -USR1 $$ ; fi; ) </dev/null &>/dev/null &
 
   # Get the consumption data from the web
-  TODAY=$(date +%Y-%m-%d)
-  HTMLDATA=$(curl "https://extranet.videotron.com/services/secur/extranet/tpia/Usage.do?lang=ENGLISH&compteInternet=$ACCOUNT")
-  DATA=$(echo "$HTMLDATA" | tr -d ' \t\r\n' | sed 's/<[./]tr>/\n/g' | sed 's/<[./]td>/\t/g' | sed 's/<[^>]*>//g' | grep $TODAY)
-  MONTH=$(echo "$DATA" | head -n1 | cut -f 6)
-  MONTH_DOWN=$(echo "$DATA" | head -n1 | cut -f 2)
-  MONTH_UP=$(echo "$DATA" | head -n1 | cut -f 4)
-  DAY_DOWN=$(echo "$DATA" | tail -n1 | cut -f 3)
-  DAY_UP=$(echo "$DATA" | tail -n1 | cut -f 5)
-  if [ $VERBOSITY -gt 1 ] ; then
-    echo "Original data"  
-    echo "$DATA"
+  if [ "$PROVIDER" == "VIDEOTRON" ]; then
+    TODAY=$(date +%Y-%m-%d)
+    HTMLDATA=$(curl "https://extranet.videotron.com/services/secur/extranet/tpia/Usage.do?lang=ENGLISH&compteInternet=$ACCOUNT")
+    DATA=$(echo "$HTMLDATA" | tr -d ' \t\r\n' | sed 's/<[./]tr>/\n/g' | sed 's/<[./]td>/\t/g' | sed 's/<[^>]*>//g' | grep $TODAY)
+    MONTH_MB=$(echo "$DATA" | head -n1 | cut -f 6)
+    MONTH_DOWN_MB=$(echo "$DATA" | head -n1 | cut -f 2)
+    MONTH_UP_MB=$(echo "$DATA" | head -n1 | cut -f 4)
+    DAY_DOWN_MB=$(echo "$DATA" | tail -n1 | cut -f 3)
+    DAY_UP_MB=$(echo "$DATA" | tail -n1 | cut -f 5)
+    if [ $VERBOSITY -gt 1 ] ; then
+      echo "Original data"  
+      echo "$DATA"
+    fi
+  elif [ "$PROVIDER" == "EBOX" ]; then
+    HTMLDATA=$(curl "http://consocable.electronicbox.net/index.php?actions=list&lng=en&code=$ACCOUNT" 2>/dev/null)
+    # Convert the HTML document into a plain text data.
+    DATA=$(echo "$HTMLDATA" | tr -d '\t\r\n' | sed 's/<[./]tr>/\n/g' | sed 's/<[./]td>/\t/g' | sed 's/<[^>]*>/ /g' | sed 's/&nbsp;/ /g')
+    # Extract the values from the data.
+    MONTH_DATA_LINE=$(echo "$DATA" | egrep -i 'download\s+[0-9.]+\s+G\s+upload\s+[0-9.]+\s+G\s+total\s+[0-9.]+\s+G' | tail -n 1)
+    MONTH_GB=$(echo "$MONTH_DATA_LINE" | awk '{ print $8;}')
+    MONTH_DOWN_GB=$(echo "$MONTH_DATA_LINE" | awk '{ print $2;}')
+    MONTH_UP_GB=$(echo "$MONTH_DATA_LINE" | awk '{ print $5;}')
+    DAY_DATA_LINE=$(echo "$DATA" | grep "$(date +%Y-%m-%d)" | tail -n 1)
+    DAY_DOWN_GB=$(echo "$DAY_DATA_LINE" | awk '{ print $2;}')
+    DAY_UP_GB=$(echo "$DAY_DATA_LINE" | awk '{ print $4;}')
+    # Convert to MB
+    MONTH=$(echo "$MONTH_GB * 1024" | bc)
+    MONTH_DOWN=$(echo "$MONTH_DOWN_GB * 1024" | bc)
+    MONTH_UP=$(echo "$MONTH_UP_GB * 1024" | bc)
+    DAY_DOWN=$(echo "$DAY_DOWN_GB * 1024" | bc)
+    DAY_UP=$(echo "$DAY_UP_GB * 1024" | bc)
   fi
   # Once we're done doing work that could take any real time, we can end the
   # trap because from here on out it's just comparisons and string

@@ -57,9 +57,9 @@ STATE=$STATE_UNKNOWN
 # make sure that any external commands are installed, in the PATH and
 # executable. The following example is stupid because of course date is
 # installed but it's the only command this trivial check really uses
-WGET=/usr/bin/wget
-if [ ! -x "$WGET" ] ; then
-	echo "The utility wget is not installed. Exiting."
+CURL=/usr/bin/curl
+if [ ! -x "$CURL" ] ; then
+	echo "The utility $CURL is not installed. Exiting."
 	cleanup $STATE_UNKNOWN
 fi
 
@@ -186,7 +186,7 @@ trap timeout USR1
     fi
 
     # Get the hostname value
-    DYNDNS_IP=`$WGET -q -O - checkip.dyndns.org 2>&1`
+    DYNDNS_IP=$($CURL --max-time $TIMELIMIT  checkip.dyndns.org 2>&1)
     IP_STATE=$?
     if [ $? -eq 0 ]
     then
