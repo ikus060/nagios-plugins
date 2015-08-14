@@ -1,0 +1,233 @@
+#! /bin/bash
+#
+# Check SSL security using sslab.
+#
+# @AUTHOR: Patrik Dufresne (http://patrikdufresne.com)
+# Copyright 2015 Patrik Dufresne
+# Last modified 2015-03-21
+# Please send all comments, suggestions, bugs and patches to (info AT patrikdufresne DOT com)
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, version 2 of the License.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+###
+
+# You should provide a meaningful VERSION
+VERSION=1.0
+# Who can be contacted about this?
+AUTHOR="Patrik Dufresne"
+# Name what is being checked to be printed out next to OK/WARNING/CRITICAL/UNKNOWN
+SERVICE="SSL LABS"
+# Define the ssllab url
+SSLLABAPIURI="https://api.ssllabs.com/api/v2"
+
+# Replacement for the exit function, will cleanup any tempfiles or such
+# before exiting.
+function cleanup {
+  exit $1
+}
+
+declare -rx PROGNAME=${0##*/}
+declare -rx PROGPATH=${0%/*}/
+
+if [ -r "${PROGPATH}utils.sh" ] ; then
+  source "${PROGPATH}utils.sh"
+else
+  echo "Can't find utils.sh. This plugin needs to be run from the same directory as utils.sh which is most likely something like /usr/lib/nagios/plugins or /usr/lib64/nagios/plugins"
+  printf "Currently being run from %s\n" "$PROGPATH"
+  # Since we couldn't define STATE_UNKNOWN since reading utils.sh
+  # failed, we use 3 here but everywhere else after this use cleanup $STATE
+  cleanup 3
+fi
+
+# Set STATE to UNKNOWN as soon as we can (right after reading in util.sh
+# where the STATES are defined)
+STATE=$STATE_UNKNOWN
+
+# make sure that any external commands are installed, in the PATH and
+# executable. The following example is stupid because of course date is
+# installed but it's the only command this trivial check really uses
+CURL=/usr/bin/curl
+if [ ! -x "$CURL" ] ; then
+  echo "The utility is not installed, in your path and executable. Exiting."
+  cleanup $STATE_UNKNOWN
+fi
+
+# provide a quick one liner of how to use the program
+function usage {
+  printf " %s %s for Nagios - Usage %s -H <hostname> \
+[-t timeout] [-v [-v [-v]]]\n" "$PROGNAME" "$VERSION" "$PROGNAME"
+  cleanup $STATE_UNKNOWN
+}
+
+# provide detailed explanations of the command line syntax
+function longhelp {
+  # put your long help here
+  printf "%s plugin version %s for Nagios by %s
+  -h, --help          Display this message.
+  -H, --hostname      The hostname to lookup SSL.
+  -t, --timeout=sec   Set script timeout in seconds (default 60sec).
+  -v, --verbose       Up the verbosity level by one.
+  --verbosity=val     Set the verbosity level to val.
+  -V, --version       Print version information.
+" "$PROGNAME" "$VERSION" "$AUTHOR"
+  cleanup $STATE_UNKNOWN
+}
+
+if [ $# -eq 0 ] ; then
+  usage
+fi
+
+# use getopt, trust me on this one. It's the easiest way
+getopt -T
+if [ $? -ne 4 ] ; then
+  printf "%s: getopt is in compatibility mode.\n" "$SCRIPT"
+  cleanup $STATE_UNKNOWN
+fi
+
+# Tell it which switches and longswitches you'll take and place a trailing
+# colon (:) on the ones take arguments. Nagios guidelines require you to
+# use all the ones specified below with the exception of --verbosity which I've
+# added to circumvent the awkward -v -v -v syntax. Getopt takes care of
+# positional parameters and errors for missing expected arguments so we can
+# shift later without checking
+RESULT=`getopt --name "$SCRIPT" --options "-h,-V,-v,-H:,-t:" --longoptions "help,version,verbose,verbosity:,hostname:timeout:" -- "$@"`
+
+# make the result of getopt your new argument list ($@)
+eval set -- "$RESULT"
+
+declare HOSTNAME
+# all scripts should have a mechanism to terminate themselves if they are
+# running for too long. Scripts you might think of as innocuous could end
+# up waiting forever on I/O, especially if a disk is failing
+declare -i TIMELIMIT=60
+# Nagios defines behavior for VERBOSITY 0 (default) through 3
+declare -i VERBOSITY=0
+
+while [ $# -gt 0 ] ; do
+  case "$1" in
+    -h | --help)
+      longhelp;;
+    -V | --version)
+      print_revision "$PROGNAME" "$VERSION"
+      cleanup $STATE;;
+    -v | --verbose)
+      VERBOSITY=$(($VERBOSITY + 1));;
+    --verbosity)
+      shift
+      VERBOSITY=$1;;
+    -t | --timeout)
+      shift
+      TIMELIMIT=$1;;
+    -H | --hostname)
+      shift
+      HOSTNAME=$1;;
+    --)
+      shift
+      break;;
+    *)
+      echo "Option $1 not supported. Ignored." >&2;;
+  esac
+  shift
+done
+
+#Verbosity level  Type of output
+#0      Single line, minimal output. Summary
+#1      Single line, additional information (eg list processes that fail)
+#2      Multi line, configuration debug output (eg ps command used)
+#3      Lots of detail for plugin problem diagnosis
+if [ $VERBOSITY -gt 2 ] ; then
+  shopt -o -s xtrace
+fi
+
+# what needs to happen in the event of a timeout
+function timeout {
+  echo "UNKNOWN - script timed out after $TIMELIMIT seconds."
+  cleanup $STATE_UNKNOWN
+}
+
+# since we've processed the options which potentially set the timeout limit,
+# we can setup a timeout trap now
+trap timeout USR1
+  # what we're doing here sending a USR1 signal back to this process which
+    # we just set a trap to catch and run the timeout function the syntax of
+    # this is important and very odd - if you know of a better way to do this, 
+    # please email me what we're doing is starting another process in the
+    # background that sleeps for TIMELIMIT seconds and then uses pgrep when
+    # it 'wakes up' to see if a process with our number, name and user exists,
+    # only then will the USR1 signal be sent we have to use pgrep so that we
+    # don't sent a USR1 signal to just any program. The only risk we run with
+    # this is sending USR1 to another instance of this script that just happens
+    # to get assigned the same process ID it should be reasonable to assume
+    # that your Nagios check interval is greater than the specified timeout
+  # still, if you havea better idea...
+  ( sleep $TIMELIMIT; if [ `pgrep -U $USER -f "$SCRIPT" | grep -c ^$$$` -gt 0 ] ; then kill -USR1 $$ ; fi; ) </dev/null &>/dev/null &
+
+  # Check that hostname is provided
+  if [ -z "$HOSTNAME" ] ; then
+    usage
+  fi
+
+  # Get the score
+  STATUS=""
+  while [ "$STATUS" != "READY" ]; do
+    DATA=$($CURL -k -s "${SSLLABAPIURI}/analyze?host=$HOSTNAME&all=done&fromCache=on")
+    if [[ -z "$DATA" ]]; then
+      # Can't get data !
+      printf "UNKNOWN - Fail to get ssl info.\n"
+      cleanup $STATE_UNKNOWN
+    fi
+    # Get the reference status
+    STATUS=$(echo "$DATA" | sed ':a;N;$!ba;s/\n//g' | grep -o '"status":\s*"[A-Z]*"' | cut -d ':' -f 2 | sed 's/"//g' |  sed 's/ //g')
+    if [ "$STATUS" != "READY" ]; then
+      if [ $VERBOSITY -gt 1 ] ; then
+        echo "Status not ready. Waiting 10 secs..."
+        echo "$STATUS"
+      fi
+      # sleep 10 secs
+      sleep 10
+    fi
+  done
+
+  GRADE=$(echo "$DATA" | egrep -o '"grade":"[A-Z][+\-]?"' | cut -d ':' -f 2 | sed 's/"//g')
+
+  # Once we're done doing work that could take any real time, we can end the
+  # trap because from here on out it's just comparisons and string
+  # concatenation
+trap - USR1
+
+# check conditions - yes this is ugly, blame BASH. If you want to blame me, please provide a cleaner way that is as fast or faster
+if [ "$GRADE" == "A+" -o "$GRADE" == "A" -o "$GRADE" == "A-" ]; then
+  STATE=$STATE_OK
+elif [ "$GRADE" == "B+" -o "$GRADE" == "B" -o "$GRADE" == "B-" ]; then
+  STATE=$STATE_WARNING
+elif [ "$GRADE" == "C+" -o "$GRADE" == "C" -o "$GRADE" == "C-" ]; then
+  STATE=$STATE_WARNING
+else
+  STATE=$STATE_CRITICAL
+fi
+
+# STATE - Message | 'label'=value[unit of measure];[warn];[crit];[min];[max]
+OUT="$HOSTNAME grade: $GRADE"
+
+case $STATE in
+  $STATE_OK)
+    printf "%s OK - %s\n" "$SERVICE" "$OUT";;
+  $STATE_WARNING)
+    printf "%s WARNING - %s\n" "$SERVICE" "$OUT";;
+  $STATE_CRITICAL)
+    printf "%s CRITICAL - %s\n" "$SERVICE" "$OUT";;
+  $STATE_UNKNOWN)
+    printf "%s UNKNOWN - %s\n" "$SERVICE" "$OUT";;
+esac
+
+cleanup $STATE
+
