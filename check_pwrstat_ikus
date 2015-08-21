@@ -1,16 +1,17 @@
 #! /bin/bash
 
 ###
-# Nagios plugin skeleton
-# http://nagiosplug.sourceforge.net/developer-guidelines.html
 #
 # This plugin check the state of a Cyber Power UPS using the utility tool
 # named pwrstat This utility is provided directly from CyberPower. To work
 # properly, this script required a sudo rules:
 #
+# nagios ALL=(ALL) NOPASSWD: /usr/sbin/pwrstat -status    
+#
 # @AUTHOR: Patrik Dufresne (http://patrikdufresne.com)
 # Copyright 2012 Patrik Dufresne
-# Last modified 2012-09-15
+# Create 2012-09-15
+# Last modified 2015-08-21
 # Please send all comments, suggestions, bugs and patches to (info AT patrikdufresne DOT com)
 #
 # This program is free software: you can redistribute it and/or modify
