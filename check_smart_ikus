@@ -286,8 +286,8 @@ trap timeout USR1
             ID_199=$(echo "$LINES" | grep "UDMA_CRC_Error_Count" | head -n 1 | awk '{print $10;}')
             [ -z "$ID_199" ] && ID_199="0"
             DATA+=("$DEVICE $HEALTH $TEMPERATURE $ID_005 $ID_196 $ID_198 $ID_199")
+            let "COUNT += 1"
         fi
-        let "COUNT += 1"
     done
 
     # Once we're done doing work that could take any real time, we can end the
