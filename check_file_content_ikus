@@ -57,7 +57,7 @@ STATE=$STATE_UNKNOWN
 
 # provide detailed explanations of the command line syntax
 function longhelp {
-    printf " %s %s for Nagios - Usage %s -f <file> [-i <include pattern>] \
+    printf " %s %s for Nagios - Usage %s -f <file> [-R] [-i <include pattern>] \
 [-e [<exclude pattern>] [-w <line numbers>] [-c <line numbers>] \
 [-t timeout] [-v [-v [-v]]]\n" "$PROGNAME" "$VERSION" "$PROGNAME"
     cleanup $STATE_UNKNOWN
@@ -65,6 +65,7 @@ function longhelp {
     printf "%s plugin version %s for Nagios by %s
   -h, --help          Display this message.
   -f, --file          Define the file to search in.
+  -R, --recursive     Recursive search.
   -i, --include=val   The regex pattern (can add multiple).
   -e, --exclude=val   The regex pattern to exclude (can add multiple)
   -w, --warning=val   Treshold for number of lines.
@@ -129,7 +130,7 @@ fi
 # added to circumvent the awkward -v -v -v syntax. Getopt takes care of
 # positional parameters and errors for missing expected arguments so we can
 # shift later without checking
-RESULT=`getopt --name "$SCRIPT" --options "-h,-V,-v,-c:,-w:,-t:,-f:,-i:,-e:" --longoptions "help,version,verbose,verbosity:,warning:,critical:,timeout:,file:,include:,exclude:" -- "$@"`
+RESULT=`getopt --name "$SCRIPT" --options "-h,-V,-v,-c:,-w:,-t:,-f:,-R,-i:,-e:" --longoptions "help,version,verbose,verbosity:,warning:,critical:,timeout:,file:,recursive,include:,exclude:" -- "$@"`
 
 # make the result of getopt your new argument list ($@)
 eval set -- "$RESULT"
@@ -139,6 +140,7 @@ declare CRITICAL
 declare FILE
 declare -a INCLUDES
 declare -a EXCLUDES
+declare -i RECURSIVE
 # all scripts should have a mechanism to terminate themselves if they are
 # running for too long. Scripts you might think of as innocuous could end
 # up waiting forever on I/O, especially if a disk is failing
@@ -170,6 +172,8 @@ while [ $# -gt 0 ] ; do
         -f | --file)
             shift
             FILE=$1;;
+        -R | --recursive)
+            RECURSIVE=1;;
         -i | --include)
             shift
             INCLUDES+=('-e')
@@ -218,11 +222,11 @@ fi
 # Check if file argument is provided
 if [ -z "$FILE" ]; then
     echo "CRITICAL - no file argument (-f) given."
-    cleanup $STATE_CRITIAL
+    cleanup $STATE_CRITICAL
 fi
 if [ -z "$INCLUDES" -a -z "$EXCLUDES" ]; then
     echo "CRITICAL - includes (-i) or excludes (-e) pattern(s) required."
-    cleanup $STATE_CRITIAL
+    cleanup $STATE_CRITICAL
 fi
 
 # what needs to happen in the event of a timeout
@@ -249,17 +253,21 @@ trap timeout USR1
 
     # Check if file exists
     if [ ! -e "$FILE" ]; then
-        echo "CRITICAL - File $FILE not found."
-        cleanup $STATE_CRITIAL
+        echo "CRITICAL - File $FILE not found!"
+        cleanup $STATE_CRITICAL
+    fi
+
+    if [ "$RECURSIVE" == "1" ]; then
+        ARGS="-R "
     fi
 
     # Count number of matches
     if [ -z "$EXCLUDES" ]; then
-        NBLINE=$(grep -c -E "${INCLUDES[@]}" "$FILE" 2>/dev/null)
+        NBLINE=$(grep -E $ARGS "${INCLUDES[@]}" "$FILE" 2>/dev/null | wc -l)
     elif [ -z "$INCLUDES" ]; then
-        NBLINE=$(grep -c -v -E "${EXCLUDES[@]}" "$FILE" 2>/dev/null)
+        NBLINE=$(grep -v -E $ARGS "${EXCLUDES[@]}" "$FILE" 2>/dev/null | wc -l)
     else
-        NBLINE=$(grep -E "${INCLUDES[@]}" "$FILE" | grep -c -v -E "${EXCLUDES[@]}" 2>/dev/null)
+        NBLINE=$(grep -E $ARGS "${INCLUDES[@]}" "$FILE" 2>/dev/null | grep -c -v -E "${EXCLUDES[@]}" 2>/dev/null)
     fi
 
     # Once we're done doing work that could take any real time, we can end the
