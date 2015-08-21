@@ -29,11 +29,11 @@ $base = 2; # Datasources per Group/Device
 $smap = array (
   'in' => array(
     'type'   => 'AREA', 
-    'color'  => '#0c0',
+    'color'  => '#00e060',
   ),
   'out' => array(
     'type'   => 'LINE1',
-    'color'  => '#029',
+    'color'  => '#0080e0',
   ),
 );
 
@@ -48,11 +48,12 @@ foreach ( $this->DS as $k=>$v ) {
       $dev[$i] = $treffer[1];
       $ds_name[$i] = $dev[$i];
     }
-    $opt[$i] = "--vertical-label Bytes -lo --title '$hostname / $servicedesc - $ds_name[$i]' ";
+    $opt[$i] = "--vertical-label Bytes/sec -lo --title '$hostname / $servicedesc - $ds_name[$i]' ";
     #$this->MACRO['DISP_HOSTNAME']
     #$this->MACRO['DISP_SERVICEDESC']
     $def[$i] = "";
-    $UNIT[$i] = "B"; $UNIT[$i+1] = "B";
+    $UNIT[$i] = "B"; 
+    $UNIT[$i+1] = "B";
   }
 
   if ( preg_match( "/^$dev[$i]_(.*)$/",$v['NAME'], $treffer ) ) {
@@ -66,19 +67,18 @@ foreach ( $this->DS as $k=>$v ) {
   #$def[$i] .= rrd::line(1,"v$k", $map_color[$k%$base], "$k\\n");
   $def[$i] .= $smap[$v['sname']]['type'].":v$k".$smap[$v['sname']]['color'].":".
                 sprintf("'%-20s' ",$dev[$i]." ".$v['sname']);
-  $def[$i] .= rrd::gprint("v$k","MAX","MAX\: %4.3lg%s$UNIT[$i]");
-  $def[$i] .= rrd::gprint("v$k","MIN","MIN\: %4.3lg%s$UNIT[$i]");
-  $def[$i] .= rrd::gprint("v$k","AVERAGE","AVG\: %4.3lg%s$UNIT[$i]");
-  $def[$i] .= rrd::gprint("v$k","LAST","LAST\: %4.3lg%s$UNIT[$i]");
-  $def[$i] .= rrd::comment("\\n");
+  $def[$i] .= rrd::gprint("v$k","LAST","%7.1lf %s$UNIT[$i]/s last");
+  $def[$i] .= rrd::gprint("v$k","AVERAGE","%7.1lf %s$UNIT[$i]/s avg");
+  $def[$i] .= rrd::gprint("v$k","MAX","%7.1lf %s$UNIT[$i]/s max");
+  #$def[$i] .= rrd::comment("\\n");
   
-  if ( $k%$base == $base-1 ) { # Some definitions at the end
-    $def[$i] .= rrd::hrule(   10*131072, "#333", "10MBit/s");
-    $def[$i] .= rrd::hrule(  100*131072, "#773", "100MBit/s");
-    $def[$i] .= rrd::hrule( 1024*131072, "#484", "1GBit/s");
-    $def[$i] .= rrd::hrule(10240*131072, "#844", "10GBit/s");
-    $def[$i] .= rrd::comment("\\n");
-  }
+  #if ( $k%$base == $base-1 ) { # Some definitions at the end
+  #  $def[$i] .= rrd::hrule(   10*131072, "#333", "10MBit/s");
+  #  $def[$i] .= rrd::hrule(  100*131072, "#773", "100MBit/s");
+  #  $def[$i] .= rrd::hrule( 1024*131072, "#484", "1GBit/s");
+  #  $def[$i] .= rrd::hrule(10240*131072, "#844", "10GBit/s");
+  #  $def[$i] .= rrd::comment("\\n");
+  #}
 
 }
 
