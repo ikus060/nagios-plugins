@@ -1,0 +1,174 @@
+#! /bin/bash
+#
+# Wrapper arround check_by_ssh to avoid returning CRITICAL when the plugin timeout.
+#
+# @AUTHOR: Patrik Dufresne (http://patrikdufresne.com)
+# Copyright 2012 Patrik Dufresne
+# Last modified 2012-11-02
+# Please send all comments, suggestions, bugs and patches to (info AT patrikdufresne DOT com)
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, version 2 of the License.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+###
+
+# You should provide a meaningful VERSION
+VERSION=0.2
+# Who can be contacted about this?
+AUTHOR="Patrik Dufresne"
+
+declare -rx PROGNAME=${0##*/}
+declare -rx PROGPATH=${0%/*}/
+
+# Replacement for the exit function, will cleanup any tempfiles or such
+# before exiting.
+function cleanup {
+    exit $1
+}
+
+if [ -r "${PROGPATH}utils.sh" ] ; then
+    source "${PROGPATH}utils.sh"
+else
+    printf "Can't find utils.sh. This plugin needs to be run from the same directory as utils.sh which is most likely something like /usr/lib/nagios/plugins or /usr/lib64/nagios/plugins"
+    printf "Currently being run from %s\n" "$PROGPATH"
+    # Since we couldn't define STATE_UNKNOWN since reading utils.sh
+    # failed, we use 3 here but everywhere else after this use cleanup $STATE
+    cleanup 3
+fi
+
+SSH="ssh"
+
+# use getopt, trust me on this one. It's the easiest way
+getopt -T
+if [ $? -ne 4 ] ; then
+  printf "%s: getopt is in compatibility mode.\n" "$PROGNAME"
+  cleanup $STATE_UNKNOWN
+fi
+
+# provide a quick one liner of how to use the program
+function usage {
+	printf " %s %s for Nagios - Usage %s -H <hostname> -C <command> [-t timeout] [-v [-v [-v]]]\n" "$PROGNAME" "$VERSION" "$PROGNAME"
+	cleanup $STATE_UNKNOWN
+}
+
+# provide detailed explanations of the command line syntax
+function longhelp {
+	# put your long help here
+	printf "%s plugin version %s for Nagios by %s
+  -C, --command       Command to execute on the remote machine.
+  -h, --help          Display this message.
+  -H, --hostname      Host name, IP Address.
+  -t, --timeout=sec   Set script timeout in seconds.
+  -v, --verbose       Up the verbosity level by one.
+  --verbosity=val     Set the verbosity level to val.
+  -V, --version       Print version information.
+" "$PROGNAME" "$VERSION" "$AUTHOR"
+	cleanup $STATE_UNKNOWN
+}
+
+if [ $# -eq 0 ] ; then
+    usage
+fi
+
+# Tell it which switches and longswitches you'll take and place a trailing
+# colon (:) on the ones take arguments. Nagios guidelines require you to
+# use all the ones specified below with the exception of --verbosity which I've
+# added to circumvent the awkward -v -v -v syntax. Getopt takes care of
+# positional parameters and errors for missing expected arguments so we can
+# shift later without checking
+RESULT=`getopt --name "$PROGNAME" --options "-h,-V,-v,-t:,-H:,-C" \
+--longoptions "help,version,verbose,verbosity:,timeout:,hostname:,command:" -- "$@"`
+
+# make the result of getopt your new argument list ($@)
+eval set -- "$RESULT"
+
+declare -i TIMELIMIT=10
+declare -i VERBOSITY=0
+declare HOST
+declare COMMAND
+
+while [ $# -gt 0 ] ; do
+  case "$1" in
+    -h | --help)
+      longhelp;;
+    -V | --version)
+      print_revision "$PROGNAME" "$VERSION"
+      cleanup $STATE;;
+    -v | --verbose)
+      VERBOSITY=$(($VERBOSITY + 1));;
+    --verbosity)
+      shift
+      VERBOSITY=$1;;
+    -t | --timeout)
+      shift
+      TIMELIMIT=$1;;
+    -H | --hostname)
+      shift
+      HOST=$1;;
+    -C | --command)
+      shift
+      COMMAND=$1;;
+    --)
+      shift
+      break;;
+    *)
+      echo "Option $1 not supported. Ignored." >&2;;
+  esac
+  shift
+done
+
+#Verbosity level  Type of output
+#0      Single line, minimal output. Summary
+#1      Single line, additional information (eg list processes that fail)
+#2      Multi line, configuration debug output (eg ps command used)
+#3      Lots of detail for plugin problem diagnosis
+if [ $VERBOSITY -gt 2 ] ; then
+  shopt -o -s xtrace
+fi
+
+if [ -z "$HOST" ]; then
+  printf "%s: You must provide a host name\n" "$PROGNAME"
+  cleanup $STATE_UNKNOWN
+fi
+
+if [ -z "$COMMAND" ]; then
+  printf "%s: No remotecmd\n" "$PROGNAME"
+  cleanup $STATE_UNKNOWN
+fi
+
+# what needs to happen in the event of a timeout
+function timeout {
+  echo "UNKNOWN - script timed out after $TIMELIMIT seconds."
+  cleanup $STATE_UNKNOWN
+}
+
+# since we've processed the options which potentially set the timeout limit,
+# we can setup a timeout trap now
+trap timeout USR1
+    (
+        ((t = $TIMELIMIT))
+        while ((t > 0)); do
+            sleep 1
+            kill -0 $$ || exit 0
+            ((t -= 1))
+        done
+        kill -s USR1 $$ || exit 0
+        sleep 2
+        kill -- -$$
+    ) 2>/dev/null >/dev/null &
+
+    OUT=`$SSH "$HOST" "$COMMAND" 2>&1`
+    STATE=$?
+
+trap - USR1
+
+printf "$OUT"
+cleanup $STATE
