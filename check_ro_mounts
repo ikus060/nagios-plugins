@@ -24,7 +24,7 @@
 use strict;
 use Getopt::Long;
 use lib "/usr/local/nagios/libexec";
-use lib "/home/nagios/bin";
+use lib $ENV{"HOME"} . "/bin";
 use utils qw (%ERRORS &support);
 
 my $name = 'RO_MOUNTS';
@@ -139,3 +139,4 @@ EOH
 }
 
 # vim:sw=4:ts=4:et
+
