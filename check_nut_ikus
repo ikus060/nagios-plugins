@@ -266,18 +266,22 @@ trap timeout USR1
     ( sleep $TIMELIMIT; if [ `pgrep -U $USER -f "$SCRIPT" | grep -c ^$$$` -gt 0 ] ; then kill -USR1 $$ ; fi; ) </dev/null &>/dev/null &
 
     # Get the sensor's value
-    DATA=`$UPSC $UPS_NAME`
+    DATA="$($UPSC $UPS_NAME  2>&1)"
     if [ $VERBOSITY -gt 2 ] ; then
         echo "$DATA"
     fi
-    UPSSTATE=`echo "$DATA" | grep ups.status | cut -d ' ' -f 2`
+    if grep ups.status > /dev/null <<< """$DATA"""; then
+        UPSSTATE=$((grep ups.status | cut -d ' ' -f 2) <<< "$DATA")
+    else
+        UPSSTATE="$DATA"
+    fi
     if [ "$UPSSTATE" != "Lost Communication" ]; then
-        OUT_VOLTAGE=`echo "$DATA" | grep 'output.voltage:' | cut -d ' ' -f 2`
-        OUT_FREQ=`echo "$DATA" | grep 'output.frequency:' | cut -d ' ' -f 2`
-        IN_VOLTAGE=`echo "$DATA" | grep 'input.voltage:' | cut -d ' ' -f 2`
-        IN_FREQ=`echo "$DATA" | grep 'input.frequency:' | cut -d ' ' -f 2`
-        BATTERY=`echo "$DATA" | grep 'battery.charge:' | cut -d ' ' -f 2`
-        LOAD=`echo "$DATA" | grep 'ups.load:' | cut -d ' ' -f 2`
+        OUT_VOLTAGE=$((grep 'output.voltage:' | cut -d ' ' -f 2) <<< """$DATA""")
+        OUT_FREQ=$((grep 'output.frequency:' | cut -d ' ' -f 2) <<< """$DATA""")
+        IN_VOLTAGE=$((grep 'input.voltage:' | cut -d ' ' -f 2) <<< """$DATA""")
+        IN_FREQ=$((grep 'input.frequency:' | cut -d ' ' -f 2) <<< """$DATA""")
+        BATTERY=$((grep 'battery.charge:' | cut -d ' ' -f 2) <<< """$DATA""")
+        LOAD=$((grep 'ups.load:' | cut -d ' ' -f 2) <<< """$DATA""")
     fi
 
     # Once we're done doing work that could take any real time, we can end the
@@ -374,10 +378,11 @@ fi
 # Check ups state
 if [ "$UPSSTATE" = "OL" ] ; then
     UPSSTATE="ON-LINE"
-fi
-if [ "$UPSSTATE" = "OB" ] ; then
+elif [ "$UPSSTATE" = "OB" ] ; then
     UPSSTATE="ON BATTERY"
     STATE=$STATE_CRITICAL
+else
+    STATE=$STATE_UNKNOWN
 fi
 
 # STATE - Message | 'label'=value[unit of measure];[warn];[crit];[min];[max]
