@@ -372,7 +372,7 @@ for i in `seq 0 $COUNT`; do
         OUT+=" $HEALTH"
     fi
     # Check sectors
-    if [ "$ID_005" -gt 0 -o "$ID_196" -gt 0 -o "$ID_198" -gt 0 -o "$ID_199" -gt 0 ]; then
+    if [ "$ID_005" -gt 5 -o "$ID_196" -gt 5 -o "$ID_198" -gt 5 -o "$ID_199" -gt 5 ]; then
         STATE=$STATE_CRITICAL
         OUT+=" bad sectors"
     fi
