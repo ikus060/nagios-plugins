@@ -245,9 +245,8 @@ trap timeout USR1
   # Get arcstats memory usage.
   ARC_KB=0
   if [ -e "/proc/spl/kstat/zfs/arcstats" ]; then
-    DATA=`cat /proc/spl/kstat/zfs/arcstats`
-    ARC=`echo "$DATA" | egrep '^size' | awk '{print $3;}'`
-    ARC_KB=`expr $ARC / 2024`
+    ARC=`egrep '^size' /proc/spl/kstat/zfs/arcstats | awk '{print $3;}'`
+    ARC_KB=`expr $ARC / 1024`
   fi
 
   # Compute usage
