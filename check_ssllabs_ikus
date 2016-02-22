@@ -186,7 +186,7 @@ trap timeout USR1
       cleanup $STATE_UNKNOWN
     fi
     # Get the reference status
-    STATUS=$(echo "$DATA" | sed ':a;N;$!ba;s/\n//g' | grep -o '"status":\s*"[A-Z]*"' | cut -d ':' -f 2 | sed 's/"//g' |  sed 's/ //g')
+    STATUS=$((sed ':a;N;$!ba;s/\n//g' | grep -o '"status":\s*"[A-Z]*"' | cut -d ':' -f 2 | sed 's/"//g' |  sed 's/ //g') <<< """$DATA""" )
     if [ "$STATUS" != "READY" ]; then
       if [ $VERBOSITY -gt 1 ] ; then
         echo "Status not ready. Waiting 10 secs..."
@@ -197,7 +197,7 @@ trap timeout USR1
     fi
   done
 
-  GRADE=$(echo "$DATA" | egrep -o '"grade":"[A-Z][+\-]?"' | cut -d ':' -f 2 | sed 's/"//g')
+  GRADE=$((sed ':a;N;$!ba;s/\n//g' | egrep -o '"grade":\s*"[A-Z][+\-]?"' | cut -d ':' -f 2 | sed 's/"//g' |  sed 's/ //g') <<< """$DATA""" ) 
 
   # Once we're done doing work that could take any real time, we can end the
   # trap because from here on out it's just comparisons and string
