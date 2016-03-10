@@ -9,3 +9,8 @@ I'm making this repository available to the public to share my work.
 # License
 
 Each plugin have it own license. Have a look at the header file.
+
+# Help & Support
+
+If you need help or have comment about one of the plugin, I invite you to
+write an email to support@patrikdufresne.com
