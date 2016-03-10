@@ -197,7 +197,8 @@ trap timeout USR1
     fi
   done
 
-  GRADE=$((sed ':a;N;$!ba;s/\n//g' | egrep -o '"grade":\s*"[A-Z][+\-]?"' | cut -d ':' -f 2 | sed 's/"//g' |  sed 's/ //g') <<< """$DATA""" ) 
+  GRADE=$((sed ':a;N;$!ba;s/\n//g' | egrep -o '"grade":\s*"[A-Z][+\-]?"' | cut -d ':' -f 2 | sed 's/"//g' |  sed 's/ //g') <<< """$DATA""" )
+  MSG=$((sed ':a;N;$!ba;s/\n//g' | egrep -o '"statusMessage":\s*"[a-zA-Z0-9 .]*"' | cut -d ':' -f 2 | sed 's/"//g' ) <<< """$DATA""" )
 
   # Once we're done doing work that could take any real time, we can end the
   # trap because from here on out it's just comparisons and string
@@ -216,7 +217,7 @@ else
 fi
 
 # STATE - Message | 'label'=value[unit of measure];[warn];[crit];[min];[max]
-OUT="$HOSTNAME grade: $GRADE"
+OUT="$HOSTNAME $MSG, grade: $GRADE"
 
 case $STATE in
   $STATE_OK)
