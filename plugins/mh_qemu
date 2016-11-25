@@ -10,10 +10,10 @@
 #       102 server               running    3072              50.00 2634      
 #       103 monitoring           running    2048              32.00 5139      
 #       104 nagios               running    1024              32.00 9030
-
-if which qm >/dev/null ; then
+QM=/usr/sbin/qm
+if [ -e "$QM" ]; then
     echo '<<<qemu>>>'
-    qm list | grep -v VMID | while read L
+    sudo -n "$QM" list | grep -v VMID | while read L
     do
         PID=$(echo $L | awk -- '{print $6}')
         if [ $PID -gt 0 ]; then
