@@ -245,6 +245,10 @@ function normalize_unit {
     fi
 }
 
+function ipmi_enabled {
+    [ -e /dev/ipmi0 -o -e /dev/ipmi/0 -o -e /dev/ipmidev/0 ]
+}
+
 # what needs to happen in the event of a timeout
 function timeout {
     echo "UNKNOWN - script timed out after $TIMELIMIT seconds."
@@ -268,7 +272,7 @@ trap timeout USR1
     ( sleep $TIMELIMIT; if [ `pgrep -U $USER -f "$SCRIPT" | grep -c ^$$$` -gt 0 ] ; then kill -USR1 $$ ; fi; ) </dev/null &>/dev/null &
 
     # If IPMITOOL is available, use it.
-    if [ -x "$IPMITOOL" ]; then
+    if ipmi_enabled && [ -x "$IPMITOOL" ]; then
         # Parse raw data
         # FAN 1            | 1510.000   | RPM        | ok    | 400.000   | 585.000   | 770.000   | 29260.000 | 29815.000 | 30370.000
         DATA=$(sudo -n "$IPMITOOL" sensor)
@@ -285,7 +289,7 @@ trap timeout USR1
             SENSOR_UNIT[$IDX]=$(normalize_unit "${SENSOR_UNIT[$IDX]}")
             IDX=$(( $IDX + 1 ))
         done <<< "$DATA"
-    elif [ -x "$FREEIPMI" ]; then
+    elif ipmi_enabled && [ -x "$FREEIPMI" ]; then
         # Parse raw data
         # ID   | Name            | Reading    | Units | Event
         # 4    | CPU Temp        | 25.00      | C     | 'OK'
