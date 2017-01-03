@@ -239,10 +239,10 @@ df -PTli $excludefs | sed 1d
 echo '[df_inodes_end]'
 
 # Filesystem usage for ZFS
-if type zfs > /dev/null 2>&1 ; then
+if type /sbin/zfs > /dev/null 2>&1 ; then
     echo '<<<zfsget>>>'
-    sudo -S zfs get -Hp name,quota,used,avail,mountpoint,type -t filesystem,volume || \
-       sudo -S zfs get -Hp name,quota,used,avail,mountpoint,type
+    sudo -S /sbin/zfs get -Hp name,quota,used,avail,mountpoint,type -t filesystem,volume || \
+       sudo -S /sbin/zfs get -Hp name,quota,used,avail,mountpoint,type
     echo '[df]'
     df -PTlk -t zfs | sed 1d
 fi
@@ -647,9 +647,9 @@ fi
 # Welcome the ZFS check on Linux
 # We do not endorse running ZFS on linux if your vendor doesnt support it ;)
 # check zpool status
-if type zpool >/dev/null; then
+if type /sbin/zpool >/dev/null; then
    echo "<<<zpool_status>>>"
-   sudo -S zpool status -x
+   sudo -S /sbin/zpool status -x
 fi
 
 
