@@ -3,8 +3,8 @@
 # Check SSL security using sslab.
 #
 # @AUTHOR: Patrik Dufresne (http://patrikdufresne.com)
-# Copyright 2015 Patrik Dufresne
-# Last modified 2015-03-21
+# Copyright 2019 Patrik Dufresne
+# Last modified 2019-07-23
 # Please send all comments, suggestions, bugs and patches to (info AT patrikdufresne DOT com)
 #
 # This program is free software: you can redistribute it and/or modify
@@ -178,35 +178,33 @@ trap timeout USR1
 
   # Get the score
   STATUS=""
-  while [ "$STATUS" != "READY" ]; do
-    DATA=$($CURL -k -s "${SSLLABAPIURI}/analyze?host=$HOSTNAME&all=done&fromCache=on")
-    if [[ -z "$DATA" ]]; then
+  DATA=$($CURL -k -s "${SSLLABAPIURI}/analyze?host=$HOSTNAME&all=done&fromCache=on")
+  if [[ -z "$DATA" ]]; then
       # Can't get data !
       printf "UNKNOWN - Fail to get ssl info.\n"
       cleanup $STATE_UNKNOWN
+  fi
+  # Get the reference status
+  STATUS=$((sed ':a;N;$!ba;s/\n//g' | grep -o '"status":\s*"[A-Z]*"' | cut -d ':' -f 2 | sed 's/"//g' |  sed 's/ //g') <<< """$DATA""" )
+  if [ "$STATUS" != "READY" ]; then
+    if [ $VERBOSITY -gt 1 ] ; then
+      echo "Status not ready."
+      echo "$STATUS"
     fi
-    # Get the reference status
-    STATUS=$((sed ':a;N;$!ba;s/\n//g' | grep -o '"status":\s*"[A-Z]*"' | cut -d ':' -f 2 | sed 's/"//g' |  sed 's/ //g') <<< """$DATA""" )
-    if [ "$STATUS" != "READY" ]; then
-      if [ $VERBOSITY -gt 1 ] ; then
-        echo "Status not ready. Waiting 10 secs..."
-        echo "$STATUS"
-      fi
-      # sleep 10 secs
-      sleep 10
-    fi
-  done
-
-  GRADE=$((sed ':a;N;$!ba;s/\n//g' | egrep -o '"grade":\s*"[A-Z][+\-]?"' | cut -d ':' -f 2 | sed 's/"//g' |  sed 's/ //g') <<< """$DATA""" )
-  MSG=$((sed ':a;N;$!ba;s/\n//g' | egrep -o '"statusMessage":\s*"[a-zA-Z0-9 .]*"' | cut -d ':' -f 2 | sed 's/"//g' ) <<< """$DATA""" )
-
+  else
+    GRADE=$((sed ':a;N;$!ba;s/\n//g' | egrep -o '"grade":\s*"[A-Z][+\-]?"' | cut -d ':' -f 2 | sed 's/"//g' |  sed 's/ //g') <<< """$DATA""" )
+    MSG=$((sed ':a;N;$!ba;s/\n//g' | egrep -o '"statusMessage":\s*"[a-zA-Z0-9 .]*"' | cut -d ':' -f 2 | sed 's/"//g' ) <<< """$DATA""" )  
+  fi
+  
   # Once we're done doing work that could take any real time, we can end the
   # trap because from here on out it's just comparisons and string
   # concatenation
 trap - USR1
 
 # check conditions - yes this is ugly, blame BASH. If you want to blame me, please provide a cleaner way that is as fast or faster
-if [ "$GRADE" == "A+" -o "$GRADE" == "A" -o "$GRADE" == "A-" ]; then
+if [ "$STATUS" != "READY" ]; then
+  STATE=$STATE_UNKNOWN
+elif [ "$GRADE" == "A+" -o "$GRADE" == "A" -o "$GRADE" == "A-" ]; then
   STATE=$STATE_OK
 elif [ "$GRADE" == "B+" -o "$GRADE" == "B" -o "$GRADE" == "B-" ]; then
   STATE=$STATE_WARNING
