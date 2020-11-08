@@ -146,6 +146,13 @@ function timeout {
 trap timeout USR1
     ( sleep $TIMELIMIT; if [ `pgrep -U $USER -f "$SCRIPT" | grep -c ^$$$` -gt 0 ] ; then kill -USR1 $$ ; fi; ) </dev/null &>/dev/null &
     
+    # Operating System
+    OS=""
+    if [ -r /etc/*release ]; then
+        source /etc/*release
+        OS=$(echo $PRETTY_NAME)
+    fi
+    
     # Get motherboard info
     BOARDVENDOR=""
     if [ -r /sys/devices/virtual/dmi/id/board_vendor ]; then
@@ -162,6 +169,9 @@ trap timeout USR1
     # Get CPU info
     DATA=$(grep -m 1 'model name' /proc/cpuinfo)
     CPU=${DATA##*: }
+    
+    # Memory
+    MEMORY="$(awk '/MemTotal/ {printf( "%d\n", $2 / 1000000 )}' /proc/meminfo) GiB"
 
     # Get Disk info
     DISK_DATA=$(ls /dev/sd? | xargs -I {} sh -c 'echo -n "Disk {}: "; sudo smartctl -a {} | egrep "(Device Model:|Serial Number:)" | sed "s/Device Model: *//g;s/Serial Number: */SN: /g" | tr "\n" " " ; echo ')
@@ -170,9 +180,12 @@ trap - USR1
 
 STATE=$STATE_OK
 
-OUT="board: $BOARDVENDOR $BOARDNAME, cpu: $CPU"
-LONG_OUT="Board: $BOARDVENDOR $BOARDNAME
+OUT="OS: $OS, board: $BOARDVENDOR $BOARDNAME, cpu: $CPU, mem: $MEMORY"
+
+LONG_OUT="OS: $OS
+Board: $BOARDVENDOR $BOARDNAME
 Cpu: $CPU
+Mem: $MEMORY
 $DISK_DATA"
 
 case $STATE in
