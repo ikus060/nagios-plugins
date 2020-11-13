@@ -153,39 +153,52 @@ trap timeout USR1
         OS=$(echo $PRETTY_NAME)
     fi
     
-    # Get motherboard info
-    BOARDVENDOR=""
-    if [ -r /sys/devices/virtual/dmi/id/board_vendor ]; then
-        BOARDVENDOR=$(cat /sys/devices/virtual/dmi/id/board_vendor)
-    fi
-    BOARDNAME=""
-    if [ -r /sys/devices/virtual/dmi/id/board_name ]; then
-        BOARDNAME=$(cat /sys/devices/virtual/dmi/id/board_name)
-    elif [ $(grep -c 'Hardware' /proc/cpuinfo) -gt 0 ]; then
-        DATA=$(grep -m 1 'Hardware' /proc/cpuinfo)
-        BOARDNAME=${DATA##*: }
-    fi
+    # Get Virtualization Type & Role
+    VIRT_TYPE=$(systemd-detect-virt)
 
+    if [ "$VIRT_TYPE" = "none" ]; then
+        # Get motherboard info
+        BOARDVENDOR=""
+        if [ -r /sys/devices/virtual/dmi/id/board_vendor ]; then
+            BOARDVENDOR=$(cat /sys/devices/virtual/dmi/id/board_vendor)
+        fi
+        BOARDNAME=""
+        if [ -r /sys/devices/virtual/dmi/id/board_name ]; then
+            BOARDNAME=$(cat /sys/devices/virtual/dmi/id/board_name)
+        elif [ $(grep -c 'Hardware' /proc/cpuinfo) -gt 0 ]; then
+            DATA=$(grep -m 1 'Hardware' /proc/cpuinfo)
+            BOARDNAME=${DATA##*: }
+        fi
+        # Get Disk info
+        DISK_DATA=$(ls /dev/sd? | xargs -I {} sh -c 'echo -n "Disk {}: "; sudo smartctl -a {} | egrep "(Device Model:|Serial Number:)" | sed "s/Device Model: *//g;s/Serial Number: */SN: /g" | tr "\n" " " ; echo ')
+    fi    
+    
     # Get CPU info
     DATA=$(grep -m 1 'model name' /proc/cpuinfo)
     CPU=${DATA##*: }
-    
-    # Memory
-    MEMORY="$(awk '/MemTotal/ {printf( "%d\n", $2 / 1000000 )}' /proc/meminfo) GiB"
 
-    # Get Disk info
-    DISK_DATA=$(ls /dev/sd? | xargs -I {} sh -c 'echo -n "Disk {}: "; sudo smartctl -a {} | egrep "(Device Model:|Serial Number:)" | sed "s/Device Model: *//g;s/Serial Number: */SN: /g" | tr "\n" " " ; echo ')
+    # Cpu count
+    CPU_COUNT="$(cat /proc/cpuinfo  | grep -c 'model name')"
+
+    # Memory
+    MEMORY="$(awk '/MemTotal/ {printf( "%d\n", $2 / 1000 )}' /proc/meminfo) MiB"
+    
 
 trap - USR1
 
 STATE=$STATE_OK
 
-OUT="OS: $OS, board: $BOARDVENDOR $BOARDNAME, cpu: $CPU, mem: $MEMORY"
-
+if [ "$VIRT_TYPE" = "none" ]; then
+  OUT="Type: ${VIRT_TYPE^^}, OS: $OS, Board: $BOARDVENDOR $BOARDNAME, CPU: $CPU_COUNT X $CPU, MEM: $MEMORY"
+else
+  OUT="Type: ${VIRT_TYPE^^}, OS: $OS, CPU: $CPU_COUNT, MEM: $MEMORY"
+fi
 LONG_OUT="OS: $OS
+Type: ${VIRT_TYPE^^}
 Board: $BOARDVENDOR $BOARDNAME
-Cpu: $CPU
-Mem: $MEMORY
+CPU Count: $CPU_COUNT
+CPU: $CPU
+Memory: $MEMORY
 $DISK_DATA"
 
 case $STATE in
@@ -200,5 +213,3 @@ case $STATE in
 esac
 
 cleanup $STATE
-
-
