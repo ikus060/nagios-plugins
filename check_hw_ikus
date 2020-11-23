@@ -186,30 +186,16 @@ trap timeout USR1
 
 trap - USR1
 
-STATE=$STATE_OK
-
 if [ "$VIRT_TYPE" = "none" ]; then
-  OUT="Type: ${VIRT_TYPE^^}, OS: $OS, Board: $BOARDVENDOR $BOARDNAME, CPU: $CPU_COUNT X $CPU, MEM: $MEMORY"
+  echo "Type: ${VIRT_TYPE^^}, OS: $OS, Board: $BOARDVENDOR $BOARDNAME, CPU: $CPU_COUNT X $CPU, MEM: $MEMORY"
 else
-  OUT="Type: ${VIRT_TYPE^^}, OS: $OS, CPU: $CPU_COUNT, MEM: $MEMORY"
+  echo "Type: ${VIRT_TYPE^^}, OS: $OS, CPU: $CPU_COUNT, MEM: $MEMORY"
 fi
-LONG_OUT="OS: $OS
+
+echo "OS: $OS
 Type: ${VIRT_TYPE^^}
 Board: $BOARDVENDOR $BOARDNAME
 CPU Count: $CPU_COUNT
 CPU: $CPU
 Memory: $MEMORY
 $DISK_DATA"
-
-case $STATE in
-    $STATE_OK)
-        printf "%s OK: %s\n%s\n" "$SERVICE" "$OUT" "$LONG_OUT";;
-    $STATE_WARNING)
-        printf "%s WARNING: %s\n%s\n" "$SERVICE" "$OUT" "$LONG_OUT";;
-    $STATE_CRITICAL)
-        printf "%s CRITICAL: %s\n%s\n" "$SERVICE" "$OUT" "$LONG_OUT";;
-    $STATE_UNKNOWN)
-        printf "%s UNKNOWN: %s\n%s\\n" "$SERVICE" "$OUT" "$LONG_OUT";;
-esac
-
-cleanup $STATE
