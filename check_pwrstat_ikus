@@ -275,7 +275,7 @@ trap timeout USR1
 	( sleep $TIMELIMIT; if [ `pgrep -U $USER -f "$SCRIPT" | grep -c ^$$$` -gt 0 ] ; then kill -USR1 $$ ; fi; ) </dev/null &>/dev/null &
 
 	# Get the sensor's value
-	DATA=`pwrstat -status`
+	DATA=`$PWRSTAT -status`
 	if [ $VERBOSITY -gt 2 ] ; then
 		echo "$DATA"
 	fi
