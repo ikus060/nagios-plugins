@@ -183,6 +183,9 @@ trap timeout USR1
     # Memory
     MEMORY="$(awk '/MemTotal/ {printf( "%d\n", $2 / 1000 )}' /proc/meminfo) MiB"
     
+    # Memory modules
+    MEM_MODULES= $(sudo dmidecode --type 17 | grep -e 'Memory Device' -e 'Type:' -e 'Size' -e 'Serial' -e 'Part' | tr '\n' ' ' |  tr '\t' ' ' | tr -s ' ' | sed 's/Memory Device /\n/g')
+    
 
 trap - USR1
 
@@ -198,4 +201,6 @@ Board: $BOARDVENDOR $BOARDNAME
 CPU Count: $CPU_COUNT
 CPU: $CPU
 Memory: $MEMORY
+Memory Modules:
+$MEM_MODULES
 $DISK_DATA"
