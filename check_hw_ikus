@@ -171,6 +171,8 @@ trap timeout USR1
         fi
         # Get Disk info
         DISK_DATA=$(ls /dev/sd? | xargs -I {} sh -c 'echo -n "Disk {}: "; sudo smartctl -a {} | egrep "(Device Model:|Serial Number:)" | sed "s/Device Model: *//g;s/Serial Number: */SN: /g" | tr "\n" " " ; echo ')
+        # Memory modules
+        MEM_MODULES="$(sudo dmidecode --type 17 | grep -e 'Memory Device' -e 'Type:' -e 'Size' -e 'Serial' -e 'Part' | tr '\n' ' ' |  tr '\t' ' ' | tr -s ' ' | sed 's/Memory Device /\n/g')"
     fi    
     
     # Get CPU info
@@ -182,10 +184,6 @@ trap timeout USR1
 
     # Memory
     MEMORY="$(awk '/MemTotal/ {printf( "%d\n", $2 / 1000 )}' /proc/meminfo) MiB"
-    
-    # Memory modules
-    MEM_MODULES="$(sudo dmidecode --type 17 | grep -e 'Memory Device' -e 'Type:' -e 'Size' -e 'Serial' -e 'Part' | tr '\n' ' ' |  tr '\t' ' ' | tr -s ' ' | sed 's/Memory Device /\n/g')"
-    
 
 trap - USR1
 
